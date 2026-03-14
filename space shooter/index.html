@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Space Shooter</title>
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none; /* Disable default touch actions to allow custom pointer controls */
+        }
+    </style>
+    <!-- Babylon.js CDN -->
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true); // Anti-aliasing enabled
+
+        const createScene = function () {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color3(0, 0, 0); // Deep space black
+
+            // --- Camera Setup ---
+            const camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 0, 0), scene);
+            // Controls will be handled manually based on pointer input
+
+            // --- Lighting ---
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+            light.intensity = 0.7;
+            const pointLight = new BABYLON.PointLight("pointLight", new BABYLON.Vector3(0, 0, 0), scene);
+            pointLight.intensity = 0.5; // A light within the cockpit
+
+            // --- Skybox (Space Environment) ---
+            const skybox = BABYLON.MeshBuilder.CreateBox("skyBox", { size: 1000 }, scene);
+            const skyboxMaterial = new BABYLON.StandardMaterial("skyBoxMaterial", scene);
+            skyboxMaterial.backFaceCulling = false;
+            skyboxMaterial.reflectionTexture = new BABYLON.CubeTexture("https://assets.babylonjs.com/environments/environmentSpecular.env", scene); // A beautiful space environment map
+            skyboxMaterial.reflectionTexture.coordinatesMode = BABYLON.Texture.SKYBOX_MODE;
+            skyboxMaterial.diffuseColor = new BABYLON.Color3(0, 0, 0); // No diffuse light on skybox
+            skyboxMaterial.specularColor = new BABYLON.Color3(0, 0, 0); // No specular highlights
+            skybox.material = skyboxMaterial;
+
+            // --- Cockpit --- 
+            // A simple box with inverted normals to be viewed from the inside
+            const cockpit = BABYLON.MeshBuilder.CreateBox("cockpit", { width: 4, height: 2.5, depth: 3, sideOrientation: BABYLON.Mesh.DOUBLESIDE }, scene);
+            cockpit.position = new BABYLON.Vector3(0, 0, 0); // Centered at origin
+            cockpit.isPickable = false; // Prevents picking the cockpit itself
+
+            const cockpitMaterial = new BABYLON.StandardMaterial("cockpitMaterial", scene);
+            cockpitMaterial.diffuseColor = new BABYLON.Color3(0.05, 0.05, 0.05); 
+            cockpitMaterial.specularColor = new BABYLON.Color3(0, 0, 0); 
+            cockpitMaterial.emissiveColor = new BABYLON.Color3(0.02, 0.02, 0.03); // Subtle internal glow
+            cockpit.material = cockpitMaterial;
+
+            // Make the camera a child of the cockpit for easy rotation
+            camera.parent = cockpit;
+            camera.position = new BABYLON.Vector3(0, 0.3, -1.2); // Position camera slightly back and up inside the cockpit
+            pointLight.parent = cockpit; // Make internal light move with cockpit
+            pointLight.position = new BABYLON.Vector3(0, 0.5, -0.5); // Position light inside cockpit
+
+            // --- Neon HUD (Babylon.GUI) ---
+            const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+
+            // Crosshair (Targeting Reticle)
+            const crosshairGroup = new BABYLON.GUI.Rectangle("crosshairGroup");
+            crosshairGroup.width = "60px";
+            crosshairGroup.height = "60px";
+            crosshairGroup.thickness = 0; // Invisible container
+            advancedTexture.addControl(crosshairGroup);
+
+            const crosshairH = new BABYLON.GUI.Rectangle("crosshairH");
+            crosshairH.width = "40px";
+            crosshairH.height = "2px";
+            crosshairH.color = "lime";
+            crosshairH.background = "lime";
+            crosshairGroup.addControl(crosshairH);
+
+            const crosshairV = new BABYLON.GUI.Rectangle("crosshairV");
+            crosshairV.width = "2px";
+            crosshairV.height = "40px";
+            crosshairV.color = "lime";
+            crosshairV.background = "lime";
+            crosshairGroup.addControl(crosshairV);
+
+            // Radar (placeholder visual)
+            const radar = new BABYLON.GUI.Ellipse("radar");
+            radar.width = "200px";
+            radar.height = "200px";
+            radar.thickness = 3;
+            radar.color = "cyan";
+            radar.background = "rgba(0, 50, 50, 0.4)";
+            radar.horizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_LEFT;
+            radar.verticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_BOTTOM;
+            radar.left = "20px";
+            radar.bottom = "20px";
+            advancedTexture.addControl(radar);
+
+            const radarLabel = new BABYLON.GUI.TextBlock("radarLabel");
+            radarLabel.text = "RADAR";
+            radarLabel.color = "cyan";
+            radarLabel.fontSize = 20;
+            radarLabel.top = "-70px"; // Position above the radar circle
+            radar.addControl(radarLabel);
+
+            // --- Game State Variables ---
+            let enemies = [];
+            let lasers = [];
+            let lastFireTime = 0;
+            const FIRE_RATE = 200; // milliseconds between shots
+            const LASER_SPEED = 1; // Units per frame
+            const ENEMY_SPEED = 0.005; // Units per frame
+            const MAX_ENEMIES = 10;
+            const ENEMY_SPAWN_INTERVAL = 3000; // milliseconds
+            let lastEnemySpawnTime = 0;
+
+            // --- Enemy Spawner ---
+            const spawnEnemy = () => {
+                if (enemies.length >= MAX_ENEMIES) return;
+
+                const enemy = BABYLON.MeshBuilder.CreateSphere("enemy", { diameter: 1.5, segments: 16 }, scene);
+                enemy.material = new BABYLON.StandardMaterial("enemyMat", scene);
+                enemy.material.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2);
+                enemy.material.emissiveColor = new BABYLON.Color3(0.5, 0.1, 0.1); // Alien glow
+                enemy.material.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1);
+
+                // Spawn enemies randomly far away in front of the player
+                const spawnDistance = 50 + Math.random() * 50; // Between 50 and 100 units
+                const angleX = (Math.random() - 0.5) * Math.PI / 2; // Up/down variation
+                const angleY = Math.random() * Math.PI * 2; // Full circle around Y
+
+                // Calculate spawn position relative to cockpit's current forward direction
+                const forwardVector = cockpit.forward.normalize();
+                const rightVector = cockpit.right.normalize();
+                const upVector = cockpit.up.normalize();
+
+                let spawnPos = cockpit.position.add(forwardVector.scale(spawnDistance));
+                // Add some radial variation
+                spawnPos.addInPlace(rightVector.scale((Math.random() - 0.5) * spawnDistance * 0.5));
+                spawnPos.addInPlace(upVector.scale((Math.random() - 0.5) * spawnDistance * 0.5));
+
+                enemy.position = spawnPos;
+                enemies.push(enemy);
+            };
+
+            // --- Laser Shooting ---
+            const shootLaser = () => {
+                const now = performance.now();
+                if (now - lastFireTime < FIRE_RATE) return; // Respect fire rate
+                lastFireTime = now;
+
+                const laser = BABYLON.MeshBuilder.CreateCylinder("laser", { height: 2, diameter: 0.2, tessellation: 8 }, scene);
+                laser.rotation.x = Math.PI / 2; // Orient along its local Z-axis initially
+                laser.material = new BABYLON.StandardMaterial("laserMat", scene);
+                laser.material.diffuseColor = new BABYLON.Color3(0, 1, 0); // Green laser
+                laser.material.emissiveColor = new BABYLON.Color3(0, 1, 0); // Intense glow
+
+                // Position the laser slightly in front of the camera, aligned with cockpit's forward direction
+                laser.position = cockpit.getAbsolutePosition().add(cockpit.forward.scale(2));
+                laser.rotationQuaternion = cockpit.rotationQuaternion.clone(); // Align laser direction with cockpit's aim
+
+                lasers.push(laser);
+            };
+
+            // --- Explosive Particles on Hit ---
+            const createExplosion = (position) => {
+                const particleSystem = new BABYLON.ParticleSystem("explosion", 2000, scene);
+                particleSystem.particleTexture = new BABYLON.Texture("https://www.babylonjs-playground.com/textures/flare.png", scene);
+                particleSystem.emitter = position; // The point of explosion
+                particleSystem.minEmitBox = new BABYLON.Vector3(-0.5, -0.5, -0.5);
+                particleSystem.maxEmitBox = new BABYLON.Vector3(0.5, 0.5, 0.5);
+
+                particleSystem.color1 = new BABYLON.Color4(1, 0.5, 0, 1); // Orange
+                particleSystem.color2 = new BABYLON.Color4(1, 0.2, 0, 1); // Darker orange/red
+                particleSystem.colorDead = new BABYLON.Color4(0, 0, 0, 0); // Fades to transparent black
+
+                particleSystem.minSize = 0.1;
+                particleSystem.maxSize = 0.5;
+                particleSystem.minLifeTime = 0.2;
+                particleSystem.maxLifeTime = 0.8;
+                particleSystem.emitRate = 1000;
+                particleSystem.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE; // Additive blending for glow
+                particleSystem.gravity = new BABYLON.Vector3(0, 0, 0); // No gravity in space
+                particleSystem.direction1 = new BABYLON.Vector3(-1, -1, -1); // Explode outwards
+                particleSystem.direction2 = new BABYLON.Vector3(1, 1, 1);
+                particleSystem.minEmitPower = 5;
+                particleSystem.maxEmitPower = 10;
+                particleSystem.updateSpeed = 0.05;
+                particleSystem.disposeOnStop = true; // Clean up particle system after it finishes
+                particleSystem.start();
+                particleSystem.stop(200); // Stop emitting after a short burst (200ms)
+            };
+
+            // --- Controls: Aiming (Right Half) & Shooting (Left Half) ---
+            let isAiming = false;
+            let lastPointerX = 0;
+            let lastPointerY = 0;
+            const rotationSpeed = 0.003; // Sensitivity for camera aiming
+
+            canvas.addEventListener("pointerdown", (event) => {
+                if (event.clientX < canvas.width / 2) {
+                    // Left screen half: Shoot laser
+                    shootLaser();
+                } else {
+                    // Right screen half: Start aiming
+                    isAiming = true;
+                    lastPointerX = event.clientX;
+                    lastPointerY = event.clientY;
+                    canvas.setPointerCapture(event.pointerId); // Capture pointer for continuous drag
+                }
+            });
+
+            canvas.addEventListener("pointerup", (event) => {
+                isAiming = false;
+                canvas.releasePointerCapture(event.pointerId); // Release pointer capture
+            });
+
+            canvas.addEventListener("pointermove", (event) => {
+                if (isAiming) {
+                    const deltaX = event.clientX - lastPointerX;
+                    const deltaY = event.clientY - lastPointerY;
+
+                    // Rotate the cockpit (and thus the camera) based on pointer movement
+                    // Yaw (Y-axis rotation)
+                    cockpit.rotation.y += deltaX * rotationSpeed;
+                    // Pitch (X-axis rotation) - clamped to prevent flipping
+                    cockpit.rotation.x += deltaY * rotationSpeed;
+                    cockpit.rotation.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, cockpit.rotation.x));
+
+                    lastPointerX = event.clientX;
+                    lastPointerY = event.clientY;
+                }
+            });
+
+            // --- Game Loop (onBeforeRenderObservable) ---
+            scene.onBeforeRenderObservable.add(() => {
+                const deltaTime = engine.getDeltaTime() / 1000; // Time in seconds since last frame
+
+                // Spawn enemies periodically
+                const now = performance.now();
+                if (now - lastEnemySpawnTime > ENEMY_SPAWN_INTERVAL) {
+                    spawnEnemy();
+                    lastEnemySpawnTime = now;
+                }
+
+                // Update lasers (movement and collision)
+                for (let i = lasers.length - 1; i >= 0; i--) {
+                    const laser = lasers[i];
+                    // Move laser in its forward direction
+                    laser.position.addInPlace(laser.forward.scale(LASER_SPEED));
+
+                    // Check for collisions with enemies
+                    let hit = false;
+                    for (let j = enemies.length - 1; j >= 0; j--) {
+                        const enemy = enemies[j];
+                        if (laser.intersectsMesh(enemy, false)) {
+                            createExplosion(enemy.position.clone()); // Create particles at enemy's position
+                            enemy.dispose(); // Remove enemy from scene
+                            enemies.splice(j, 1); // Remove from array
+                            laser.dispose(); // Remove laser from scene
+                            lasers.splice(i, 1); // Remove from array
+                            hit = true;
+                            break; // Laser hit, no need to check other enemies
+                        }
+                    }
+
+                    // Dispose laser if it flies too far without hitting anything
+                    if (!hit && laser.position.length() > 200) { 
+                        laser.dispose();
+                        lasers.splice(i, 1);
+                    }
+                }
+
+                // Update enemies (movement towards player)
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const enemy = enemies[i];
+                    // Calculate direction from enemy to cockpit and move enemy
+                    const direction = cockpit.position.subtract(enemy.position).normalize();
+                    enemy.position.addInPlace(direction.scale(ENEMY_SPEED * deltaTime));
+
+                    // If enemy gets too close to the player, remove it (or implement player damage)
+                    if (BABYLON.Vector3.Distance(enemy.position, cockpit.position) < 3) { 
+                        enemy.dispose();
+                        enemies.splice(i, 1);
+                        // TODO: Implement player damage or game over condition here!
+                    }
+                }
+            });
+
+            return scene;
+        };
+
+        const scene = createScene();
+
+        // Start the Babylon.js render loop
+        engine.runRenderLoop(() => {
+            scene.render();
+        });
+
+        // Handle window resize events
+        window.addEventListener("resize", () => {
+            engine.resize();
+        });
+    </script>
+</body>
+</html>
