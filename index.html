@@ -9,7 +9,9 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#060608;
   font-family:'Segoe UI',Arial,sans-serif;touch-action:none}
-canvas{display:block;position:fixed;inset:0;z-index:0}
+  
+/* Only target the main game canvas to avoid breaking the speedo canvas */
+#game-canvas{display:block;position:fixed;inset:0;z-index:0}
 
 /* ── Portrait warning ── */
 #portrait-warn{display:none;position:fixed;inset:0;z-index:200;background:#060608;
@@ -55,7 +57,7 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 #speedo-wrap{position:fixed;bottom:clamp(10px,2vh,18px);left:50%;
   transform:translateX(-50%);z-index:10;pointer-events:none;
   display:flex;flex-direction:column;align-items:center}
-#speedo{display:block;width:clamp(90px,14vw,120px);height:clamp(90px,14vw,120px)}
+#speedo{display:block;position:relative;width:clamp(90px,14vw,120px);height:clamp(90px,14vw,120px)}
 #gear-display{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
   font-size:clamp(16px,3vw,22px);font-weight:900;color:#e8c840;text-align:center;
   line-height:1;text-shadow:0 0 10px rgba(232,200,64,.6)}
@@ -127,11 +129,6 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
   box-shadow:0 0 32px rgba(255,100,0,.95),0 0 64px rgba(255,100,0,.4);
   transform:scale(.93)}
 
-/* Steer label badges */
-.steer-badge{position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);
-  font-size:7px;color:#555;letter-spacing:1.5px;white-space:nowrap}
-.btn-wrap{position:relative;display:flex;flex-direction:column;align-items:center}
-
 /* Wrecked overlay */
 #wrecked{position:fixed;inset:0;z-index:50;display:none;
   flex-direction:column;align-items:center;justify-content:center;
@@ -159,12 +156,12 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
   }, true);
 </script>
 
-<!-- Add this IMPORT MAP right before </head> -->
+<!-- Using Unpkg and updating to a modern stable ThreeJS (0.158) -->
 <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
     }
   }
 </script>
@@ -293,7 +290,7 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 </div>
 
 <script type="module">
-// ─── Imports (Now using the Import Map!) ───
+// ─── Imports ───
 import * as THREE from 'three';
 import { GLTFLoader }  from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
@@ -314,15 +311,19 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
-renderer.outputEncoding = THREE.sRGBEncoding;
+// FIX: Updated color space for Three.js 0.158.0
+renderer.outputColorSpace = THREE.SRGBColorSpace; 
+renderer.domElement.id = 'game-canvas';
 document.body.appendChild(renderer.domElement);
 
 const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(65, 1, 0.05, 900);
 
 function resize(){
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const w = window.innerWidth || 800;
+  const h = window.innerHeight || 600;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize); 
@@ -465,7 +466,7 @@ function buildCityGroup(cityGLB){
     const cl=cityGLB.clone();
     scene.add(cl); return {group:cl,isGLB:true};
   }
-  // Procedural fallback
+// Procedural fallback
   const g=new THREE.Group();
   for(let side of[-1,1]){
     for(let bi=0;bi<3;bi++){
@@ -562,7 +563,6 @@ function tickExhaust(dt,accel,nitro){
   exGeo.attributes.position.needsUpdate=true;
   exPts.material.color.setHex(nitro?0x0088ff:accel?0xff6600:0x666666);
   
-  // FIX: Explicitly clear logic to avoid "Optional Chaining" (?. syntax) crash in older engines
   exPts.material.opacity = (accel || nitro) ? 0.8 : 0.25;
 }
 
@@ -606,7 +606,6 @@ function getGear(kmh){
   for(let i=GEARS_KMH.length-1;i>=0;i--) if(kmh>=GEARS_KMH[i]) return i;
   return 0;
 }
-
 // ─── Wheel nodes ───────────────────────────────────────
 const WHEEL_NAMES=['Circle.038_1','Circle.050_51','Circle.037_2','Circle.051_37','Circle.048_52'];
 const FRONT_WHEELS=['Circle.038_1','Circle.050_51'];
@@ -624,9 +623,8 @@ scene.add(carGroup);
 function loadCar(){
   return new Promise(resolve=>{
     let done=false;
-    // Single total timeout — does NOT reset on each progress chunk.
-    // 90s covers large models on slow mobile connections.
-    const fallbackTimer=setTimeout(()=>fallback('timeout'),90000);
+    // FIX: Reduced timeout dramatically from 90s to 1.5s so it doesn't freeze the screen if the file isn't found
+    const fallbackTimer=setTimeout(()=>fallback('timeout'), 1500);
     const fallback=(reason)=>{
       if(done) return; done=true;
       clearTimeout(fallbackTimer);
@@ -634,35 +632,41 @@ function loadCar(){
       setProgress(.45,'USING FALLBACK CAR…');
       buildBoxCar(); resolve(false);
     };
-    loader.load(
-      './models/car.glb',
-      gltf=>{
-        if(done) return; done=true; clearTimeout(fallbackTimer);
-        const model=gltf.scene;
-        const box=new THREE.Box3().setFromObject(model);
-        const sz=new THREE.Vector3(); box.getSize(sz);
-        const sc=4.5/sz.z; model.scale.setScalar(sc);
-        box.setFromObject(model);
-        const mn=new THREE.Vector3(); box.getMin(mn);
-        model.position.y=-mn.y;
-        model.traverse(n=>{
-          if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}
-          if(WHEEL_NAMES.includes(n.name)){
-            wheelNodes.push(n);
-            if(FRONT_WHEELS.includes(n.name)) frontWheelNodes.push(n);
-          }
-        });
-        carGroup.add(model);
-        resolve(true);
-      },
-      xhr=>{
-        // Just update progress — no stall reset here (that was the bug)
-        const kb=xhr.loaded/1024|0;
-        const pct=xhr.total>0?xhr.loaded/xhr.total:0;
-        setProgress(.03+pct*.42,'LOADING CAR MODEL… '+kb+'KB');
-      },
-      err=>fallback(err)
-    );
+    
+    // FIX: Wrapped loader inside try/catch so if the browser throws an immediate error (like CORS), it catches and falls back.
+    try {
+      loader.load(
+        './models/car.glb',
+        gltf=>{
+          if(done) return; done=true; clearTimeout(fallbackTimer);
+          const model=gltf.scene;
+          const box=new THREE.Box3().setFromObject(model);
+          const sz=new THREE.Vector3(); box.getSize(sz);
+          const sc=4.5/Math.max(sz.z, 0.1); 
+          model.scale.setScalar(sc);
+          box.setFromObject(model);
+          const mn=new THREE.Vector3(); box.getMin(mn);
+          model.position.y=-mn.y;
+          model.traverse(n=>{
+            if(n.isMesh){n.castShadow=true;n.receiveShadow=true;}
+            if(WHEEL_NAMES.includes(n.name)){
+              wheelNodes.push(n);
+              if(FRONT_WHEELS.includes(n.name)) frontWheelNodes.push(n);
+            }
+          });
+          carGroup.add(model);
+          resolve(true);
+        },
+        xhr=>{
+          const kb=xhr.loaded/1024|0;
+          const pct=xhr.total>0?xhr.loaded/xhr.total:0;
+          setProgress(.03+pct*.42,'LOADING CAR MODEL… '+kb+'KB');
+        },
+        err=>fallback(err)
+      );
+    } catch(e) {
+      fallback(e);
+    }
   });
 }
 
@@ -690,7 +694,8 @@ function buildBoxCar(){
 function loadRoad(){
   return new Promise(resolve=>{
     let done=false;
-    const fallbackTimer=setTimeout(()=>fallback('timeout'),90000);
+    // FIX: Reduced timeout dramatically from 90s to 1.5s
+    const fallbackTimer=setTimeout(()=>fallback('timeout'), 1500);
     const fallback=(reason)=>{
       if(done) return; done=true;
       clearTimeout(fallbackTimer);
@@ -698,31 +703,37 @@ function loadRoad(){
       setProgress(.95,'USING PROCEDURAL CITY…');
       resolve(false);
     };
-    loader.load(
-      './models/road.glb',
-      gltf=>{
-        if(done) return; done=true; clearTimeout(fallbackTimer);
-        const model=gltf.scene;
-        const box=new THREE.Box3().setFromObject(model);
-        const sz=new THREE.Vector3(); box.getSize(sz);
-        const sc=120/Math.max(sz.x,sz.z,1);
-        model.scale.setScalar(sc);
-        const mn=new THREE.Vector3(); box.getMin(mn);
-        model.position.y=-mn.y*sc;
-        model.traverse(n=>{ if(n.isMesh){n.castShadow=true;n.receiveShadow=true;} });
-        cityGLB=model;
-        resolve(true);
-      },
-      xhr=>{
-        // Just update progress — no stall reset here (that was the bug)
-        const pct=xhr.total>0?xhr.loaded/xhr.total:0;
-        setProgress(.45+pct*.48,'LOADING CITY… '+(xhr.loaded/1024|0)+'KB');
-      },
-      err=>fallback(err)
-    );
+    
+    // FIX: Try catch block
+    try {
+      loader.load(
+        './models/road.glb',
+        gltf=>{
+          if(done) return; done=true; clearTimeout(fallbackTimer);
+          const model=gltf.scene;
+          const box=new THREE.Box3().setFromObject(model);
+          const sz=new THREE.Vector3(); box.getSize(sz);
+          const sc=120/Math.max(sz.x,sz.z,1);
+          model.scale.setScalar(sc);
+          const mn=new THREE.Vector3(); box.getMin(mn);
+          model.position.y=-mn.y*sc;
+          model.traverse(n=>{ if(n.isMesh){n.castShadow=true;n.receiveShadow=true;} });
+          cityGLB=model;
+          resolve(true);
+        },
+        xhr=>{
+          const pct=xhr.total>0?xhr.loaded/xhr.total:0;
+          setProgress(.45+pct*.48,'LOADING CITY… '+(xhr.loaded/1024|0)+'KB');
+        },
+        err=>fallback(err)
+      );
+    } catch(e) {
+      fallback(e);
+    }
   });
-}
-// ─── Input ────────────────────────────────────────────────────────────────────
+  
+   }
+  // ─── Input ────────────────────────────────────────────────────────────────────
 const K=new Set();
 window.addEventListener('keydown',e=>{ K.add(e.code);
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
@@ -891,7 +902,6 @@ function physicsStep(){
   const rollTarget=steerAngle*1.8*(Math.min(kmh,120)/120);
   carGroup.rotation.z+=(rollTarget-carGroup.rotation.z)*.12;
   
-  // FIX: Explicitly clarify ternary syntax logic to avoid optional chaining crash
   const pitchTarget = brake ? -0.04 : (accel ? 0.02 : 0);
   carGroup.rotation.x+=(pitchTarget-carGroup.rotation.x)*.1;
 
@@ -908,9 +918,8 @@ function wreck(){
   $('wreck-stats').textContent=
     `Distance: ${totalDist>1000?(totalDist/1000).toFixed(2)+' km':Math.round(totalDist)+' m'} · Top Speed: ${Math.round(topSpeed)} km/h`;
   $('wrecked').style.display='flex';
-}
-
-// ─── Animation loop ───────────────────────────────────────────────────────────
+  }
+  // ─── Animation loop ───────────────────────────────────────────────────────────
 const clock=new THREE.Clock();
 let gameRunning=false;
 
