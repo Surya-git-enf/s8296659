@@ -131,6 +131,16 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
     }
   }, true);
 </script>
+
+<!-- Add this IMPORT MAP right before </head> -->
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+    }
+  }
+</script>
 </head>
 <body>
 
@@ -254,10 +264,10 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 </div>
 
 <script type="module">
-// ─── Imports (JSDELIVR is globally faster and avoids unpkg 404/CORS issues) ───
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js';
-import { GLTFLoader }  from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/DRACOLoader.js';
+// ─── Imports (Now using the Import Map!) ───
+import * as THREE from 'three';
+import { GLTFLoader }  from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -630,6 +640,7 @@ function buildBoxCar(){
     if(i<2) frontWheelNodes.push(w);
   });
 }
+
 function loadRoad(){
   return new Promise(resolve=>{
     loader.load(
@@ -650,9 +661,8 @@ function loadRoad(){
       err=>{ console.warn('road.glb missing, using procedural city',err); resolve(false); }
     );
   });
-}
-
-// ─── Input ────────────────────────────────────────────────────────────────────
+        }
+  // ─── Input ────────────────────────────────────────────────────────────────────
 const K=new Set();
 window.addEventListener('keydown',e=>{ K.add(e.code);
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
