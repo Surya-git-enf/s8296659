@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -120,6 +121,17 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 #wrecked button{padding:12px 36px;font-size:15px;font-weight:700;
   background:#e8c840;color:#000;border:none;border-radius:8px;cursor:pointer;letter-spacing:2px}
 </style>
+
+<!-- Global Error Catcher -->
+<script>
+  window.addEventListener('error', function(e) {
+    var el = document.getElementById('load-status');
+    if(el && el.textContent === 'INITIALISING…') { 
+      el.textContent = 'MODULE ERROR: CHECK CONSOLE'; 
+      el.style.color = '#ff3333'; 
+    }
+  }, true);
+</script>
 </head>
 <body>
 
@@ -243,10 +255,11 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 </div>
 
 <script type="module">
-// ─── Imports ─────────────────────────────────────────────────────────────────
-import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.module.js';
-import { GLTFLoader }  from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'https://unpkg.com/three@0.128.0/examples/jsm/loaders/DRACOLoader.js';
+// ─── Imports (FIXED PATHS) ───────────────────────────────────────────────────
+// Using unpkg for all imports ensures they share the exact same ThreeJS instance!
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js';
+import { GLTFLoader }  from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/DRACOLoader.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -259,7 +272,7 @@ function setProgress(p, msg){
 
 // ─── Renderer ────────────────────────────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({antialias:true, powerPreference:'high-performance'});
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -556,10 +569,6 @@ function getGear(kmh){
 }
 
 // ─── Wheel nodes (from GLB inspection) ───────────────────────────────────────
-// FL node: Circle.038_1 at [-0.944,0.453,-0.982]
-// FR node: Circle.050_51 at [0.944,0.453,-0.982]
-// RL node: Circle.037_2 at [-0.826,0.453,1.603]
-// RR node: Circle.051_37 at [0.826,0.453,1.603]
 const WHEEL_NAMES=['Circle.038_1','Circle.050_51','Circle.037_2','Circle.051_37','Circle.048_52'];
 const FRONT_WHEELS=['Circle.038_1','Circle.050_51'];
 let wheelNodes=[], frontWheelNodes=[];
@@ -572,8 +581,6 @@ loader.setDRACOLoader(draco);
 
 const carGroup=new THREE.Group();
 scene.add(carGroup);
-
-setProgress(.03,'LOADING CAR MODEL…');
 
 function loadCar(){
   return new Promise(resolve=>{
@@ -659,6 +666,7 @@ addEventListener('keyup',e=>K.delete(e.code));
 
 function bindBtn(id,code){
   const el=$(id);
+  if (!el) return;
   const on=()=>{ K.add(code); el.classList.add('on'); };
   const off=()=>{ K.delete(code); el.classList.remove('on'); };
   el.addEventListener('touchstart',e=>{ on(); e.preventDefault(); },{passive:false});
@@ -849,9 +857,8 @@ function physicsStep(){
   for(const w of frontWheelNodes) w.rotation.y=steerAngle*3.5;
 
   recycleSegments();
-}
-
-function wreck(){
+  }
+  function wreck(){
   crashed=true;
   speed=0;
   $('wreck-stats').textContent=
@@ -879,21 +886,29 @@ function animate(){
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 async function boot(){
-  setProgress(.02,'LOADING CAR…');
-  await loadCar();
-  setProgress(.47,'LOADING CITY…');
-  await loadRoad();
-  setProgress(.95,'BUILDING WORLD…');
-  initExhaust();
-  initPool();
-  // Place car at start
-  carX=0; carZ=0; carHeading=0;
-  setProgress(1,'READY');
-  await new Promise(r=>setTimeout(r,350));
-  $('loading').style.display='none';
-  gameRunning=true;
-  clock.start();
-  animate();
+  try {
+    setProgress(.02,'LOADING CAR…');
+    await loadCar();
+    setProgress(.47,'LOADING CITY…');
+    await loadRoad();
+    setProgress(.95,'BUILDING WORLD…');
+    initExhaust();
+    initPool();
+    
+    // Place car at start
+    carX=0; carZ=0; carHeading=0;
+    setProgress(1,'READY');
+    await new Promise(r=>setTimeout(r,350));
+    
+    $('loading').style.display='none';
+    gameRunning=true;
+    clock.start();
+    animate();
+  } catch(e) {
+    console.error(e);
+    setProgress(1,'ERROR STARTING GAME. CHECK CONSOLE.');
+    $('load-status').style.color = '#ff3333';
+  }
 }
 
 boot();
