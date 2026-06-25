@@ -19,14 +19,14 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 
 /* ── Loading screen ── */
 #loading{position:fixed;inset:0;background:#060608;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;z-index:100;color:#fff}
+  align-items:center;justify-content:center;z-index:100;color:#fff;text-align:center;padding:20px;}
 #loading h1{font-size:clamp(28px,6vw,52px);color:#e8c840;letter-spacing:8px;
   margin-bottom:6px;font-weight:900}
 #loading .sub{color:#555;font-size:11px;letter-spacing:4px;margin-bottom:30px}
 #bar-wrap{width:300px;height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden;
   border:1px solid #333}
 #bar{height:100%;background:linear-gradient(90deg,#e8c840,#ff6600);width:0%;transition:width .25s}
-#load-status{margin-top:12px;font-size:11px;color:#555;letter-spacing:2px}
+#load-status{margin-top:12px;font-size:11px;color:#555;letter-spacing:2px;max-width:80%;word-wrap:break-word;}
 
 /* ── HUD top bar ── */
 #hud-top{position:fixed;top:0;left:0;right:0;height:52px;z-index:10;pointer-events:none;
@@ -66,10 +66,7 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
   background:radial-gradient(ellipse at center,transparent 30%,rgba(255,255,255,.04) 100%);
   transition:opacity .2s}
 
-/* ── LANDSCAPE touch controls ──────────────────────────────────
-   LEFT SIDE: D-pad (steer left/right + up arrow visual)
-   RIGHT SIDE: accel (top) + brake (bottom) stacked
-   Nitro: right side middle                              */
+/* ── LANDSCAPE touch controls ────────────────────────────────── */
 #controls{position:fixed;bottom:0;left:0;right:0;height:100%;z-index:10;
   pointer-events:none;display:flex;align-items:flex-end;
   justify-content:space-between;padding:0 14px 14px}
@@ -122,13 +119,15 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
   background:#e8c840;color:#000;border:none;border-radius:8px;cursor:pointer;letter-spacing:2px}
 </style>
 
-<!-- Global Error Catcher -->
+<!-- Upgraded Global Error Catcher -->
 <script>
   window.addEventListener('error', function(e) {
     var el = document.getElementById('load-status');
-    if(el && el.textContent === 'INITIALISING…') { 
-      el.textContent = 'MODULE ERROR: CHECK CONSOLE'; 
-      el.style.color = '#ff3333'; 
+    if(el) { 
+      var errText = e.message || "Unknown Script Error";
+      el.innerHTML = 'ERROR:<br/>' + errText; 
+      el.style.color = '#ff4444'; 
+      el.style.fontWeight = 'bold';
     }
   }, true);
 </script>
@@ -255,8 +254,7 @@ canvas{display:block;position:fixed;inset:0;z-index:0}
 </div>
 
 <script type="module">
-// ─── Imports (FIXED PATHS) ───────────────────────────────────────────────────
-// Using unpkg for all imports ensures they share the exact same ThreeJS instance!
+// ─── Imports (JSDELIVR is globally faster and avoids unpkg 404/CORS issues) ───
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js';
 import { GLTFLoader }  from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/loaders/DRACOLoader.js';
@@ -266,8 +264,8 @@ const $ = id => document.getElementById(id);
 const bar      = $('bar');
 const loadStat = $('load-status');
 function setProgress(p, msg){
-  bar.style.width = (p*100)+'%';
-  if(msg) loadStat.textContent = msg;
+  if(bar) bar.style.width = (p*100)+'%';
+  if(msg && loadStat) loadStat.textContent = msg;
 }
 
 // ─── Renderer ────────────────────────────────────────────────────────────────
@@ -284,11 +282,12 @@ const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(65, 1, 0.05, 900);
 
 function resize(){
-  renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth / innerHeight;
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 }
-addEventListener('resize', resize); resize();
+window.addEventListener('resize', resize); 
+resize();
 
 // ─── Sky shader ───────────────────────────────────────────────────────────────
 const skyMat = new THREE.ShaderMaterial({
@@ -422,7 +421,6 @@ function buildLampGroup(){
 
 // City buildings pool (2 per segment side, randomised)
 const BUILD_COLORS=[0x1a2030,0x201828,0x28201a,0x182028,0x202218,0x181a22];
-const buildPools=[];
 function buildCityGroup(cityGLB){
   if(cityGLB){
     const cl=cityGLB.clone();
@@ -524,7 +522,9 @@ function tickExhaust(dt,accel,nitro){
   }
   exGeo.attributes.position.needsUpdate=true;
   exPts.material.color.setHex(nitro?0x0088ff:accel?0xff6600:0x666666);
-  exPts.material.opacity=accel||nitro?.8:.25;
+  
+  // FIX: Explicitly clear logic to avoid "Optional Chaining" (?. syntax) crash in older engines
+  exPts.material.opacity = (accel || nitro) ? 0.8 : 0.25;
 }
 
 // ─── Skid marks ───────────────────────────────────────────────────────────────
@@ -568,7 +568,7 @@ function getGear(kmh){
   return 0;
 }
 
-// ─── Wheel nodes (from GLB inspection) ───────────────────────────────────────
+// ─── Wheel nodes ───────────────────────────────────────
 const WHEEL_NAMES=['Circle.038_1','Circle.050_51','Circle.037_2','Circle.051_37','Circle.048_52'];
 const FRONT_WHEELS=['Circle.038_1','Circle.050_51'];
 let wheelNodes=[], frontWheelNodes=[];
@@ -588,12 +588,9 @@ function loadCar(){
       './models/car.glb',
       gltf=>{
         const model=gltf.scene;
-        // Auto-scale: measure bounding box
         const box=new THREE.Box3().setFromObject(model);
         const sz=new THREE.Vector3(); box.getSize(sz);
-        // Target car length ~4.5 units
         const sc=4.5/sz.z; model.scale.setScalar(sc);
-        // Sit on ground
         box.setFromObject(model);
         const mn=new THREE.Vector3(); box.getMin(mn);
         model.position.y=-mn.y;
@@ -614,7 +611,6 @@ function loadCar(){
 }
 
 function buildBoxCar(){
-  // Sleek box-car fallback
   const mats={body:new THREE.MeshLambertMaterial({color:0xcccccc}),
     glass:new THREE.MeshLambertMaterial({color:0x334455,transparent:true,opacity:.7}),
     wheel:new THREE.MeshLambertMaterial({color:0x111111}),
@@ -634,7 +630,6 @@ function buildBoxCar(){
     if(i<2) frontWheelNodes.push(w);
   });
 }
-
 function loadRoad(){
   return new Promise(resolve=>{
     loader.load(
@@ -643,7 +638,6 @@ function loadRoad(){
         const model=gltf.scene;
         const box=new THREE.Box3().setFromObject(model);
         const sz=new THREE.Vector3(); box.getSize(sz);
-        // Scale so the city block fits across ~120 units wide
         const sc=120/Math.max(sz.x,sz.z,1);
         model.scale.setScalar(sc);
         const mn=new THREE.Vector3(); box.getMin(mn);
@@ -660,9 +654,9 @@ function loadRoad(){
 
 // ─── Input ────────────────────────────────────────────────────────────────────
 const K=new Set();
-addEventListener('keydown',e=>{ K.add(e.code);
+window.addEventListener('keydown',e=>{ K.add(e.code);
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault(); });
-addEventListener('keyup',e=>K.delete(e.code));
+window.addEventListener('keyup',e=>K.delete(e.code));
 
 function bindBtn(id,code){
   const el=$(id);
@@ -683,14 +677,14 @@ bindBtn('btn-brake','KeyS');
 bindBtn('btn-nitro','Space');
 
 // ─── Speedo renderer ──────────────────────────────────────────────────────────
-const sCtx=$('speedo').getContext('2d');
+const speedoCanvas = $('speedo');
+const sCtx = speedoCanvas ? speedoCanvas.getContext('2d') : null;
 function drawSpeedo(kmh,maxKmh){
+  if (!sCtx) return;
   const W=120,cx=60,cy=62,r=46;
   sCtx.clearRect(0,0,W,W);
-  // BG arc
   sCtx.beginPath(); sCtx.arc(cx,cy,r,Math.PI*.72,Math.PI*2.28);
   sCtx.strokeStyle='#1a1a22'; sCtx.lineWidth=10; sCtx.stroke();
-  // Fill arc
   const pct=Math.min(kmh/maxKmh,1);
   if(pct>0){
     const grad=sCtx.createLinearGradient(cx-r,cy,cx+r,cy);
@@ -698,7 +692,6 @@ function drawSpeedo(kmh,maxKmh){
     sCtx.beginPath(); sCtx.arc(cx,cy,r,Math.PI*.72,Math.PI*.72+pct*Math.PI*1.56);
     sCtx.strokeStyle=grad; sCtx.lineWidth=10; sCtx.stroke();
   }
-  // Tick marks
   for(let i=0;i<=10;i++){
     const a=Math.PI*.72+i/10*Math.PI*1.56;
     const x1=cx+Math.cos(a)*(r-7), y1=cy+Math.sin(a)*(r-7);
@@ -715,12 +708,10 @@ let camShake=0;
 
 function updateCamera(dt){
   const kmh=Math.abs(speed)*3.6;
-  // Dynamic FOV
   const targetFOV=65+(kmh/280)*18;
   camera.fov+=(targetFOV-camera.fov)*.06;
   camera.updateProjectionMatrix();
 
-  // Chase position: further back at speed, lower for drama
   const backDist=5.5+(kmh/280)*2.5;
   const upDist=1.8+(kmh/280)*.8;
   const tx=carX-Math.sin(carHeading)*backDist;
@@ -728,7 +719,6 @@ function updateCamera(dt){
   camPos.lerp(new THREE.Vector3(tx,carY+upDist,tz),.1);
   camTarget.lerp(new THREE.Vector3(carX,carY+.7,carZ),.16);
 
-  // Shake on nitro / crash
   if(camShake>0){
     camPos.x+=(Math.random()-.5)*camShake;
     camPos.y+=(Math.random()-.5)*camShake*.4;
@@ -737,7 +727,6 @@ function updateCamera(dt){
   camera.position.copy(camPos);
   camera.lookAt(camTarget);
 
-  // Headlights follow car
   const hlPos=new THREE.Vector3(0,.8,-2.5);
   hlPos.applyEuler(new THREE.Euler(0,carHeading,0));
   hlPos.add(new THREE.Vector3(carX,carY,carZ));
@@ -747,7 +736,6 @@ function updateCamera(dt){
   hlTgt.add(new THREE.Vector3(carX,carY,carZ));
   headL.target.position.copy(hlTgt);
   headL.target.updateMatrixWorld();
-  // Only at night feel
   headL.intensity=3;
 }
 
@@ -760,18 +748,13 @@ function updateHUD(){
   $('h-top').textContent=Math.round(topSpeed);
   $('h-nitro-cnt').textContent=nitroCharges;
   $('health-fill').style.width=(health*100)+'%';
-  // Nitro bar = active boost progress
   const nitroBarPct=nitroActive>0?(nitroActive/NITRO_TIME*100):0;
   $('nitro-fill').style.width=nitroBarPct+'%';
-  // Gear
   const gear=speed<0.5?'N':getGear(kmh);
   $('gear-letter').textContent=gear;
-  // Speedo
   const maxKmh=nitroActive>0?220:140;
   drawSpeedo(kmh,maxKmh);
-  // Nitro vignette
   $('vignette').style.opacity=nitroActive>0?'1':'0';
-  // Speed lines
   $('speedlines').style.opacity=Math.min((kmh-80)/80,1)>0?Math.min((kmh-80)/80,1):'0';
 }
 
@@ -787,7 +770,6 @@ function physicsStep(){
   const right=K.has('KeyD')||K.has('ArrowRight');
   const nos  =K.has('Space');
 
-  // Nitro trigger
   if(nos && nitroActive<=0 && nitroCooldown<=0 && nitroCharges>0){
     nitroActive=NITRO_TIME; nitroCooldown=6; nitroCharges--;
     camShake=.18;
@@ -797,68 +779,60 @@ function physicsStep(){
 
   const topSpd=nitroActive>0?SPEED_NITRO:SPEED_MAX;
 
-  // Speed
   if(accel) speed=Math.min(speed+ENGINE_FORCE*FIXED_DT*(nitroActive>0?2.4:1),topSpd);
   else if(brake) speed=Math.max(speed-BRAKE_FORCE*FIXED_DT,-6);
   else speed=speed>0?Math.max(speed-FRICTION_K*FIXED_DT,0)
                     :Math.min(speed+FRICTION_K*FIXED_DT,0);
 
-  // Steering: more grip at low speed, slides at high speed
   const kmh=Math.abs(speed)*3.6;
   const steerRate=STEER_MAX*(1-Math.min(kmh/220,.65));
   if(left  && Math.abs(speed)>.5) steerAngle=Math.min(steerAngle+steerRate, .45);
   else if(right && Math.abs(speed)>.5) steerAngle=Math.max(steerAngle-steerRate,-.45);
   else steerAngle*=(1-STEER_RETURN*FIXED_DT);
 
-  // Heading change proportional to speed and steer
   const turnRate=steerAngle*(Math.abs(speed)/SPEED_MAX)*1.2;
   carHeading+=turnRate;
 
-  // Move
   carX+=Math.sin(carHeading)*speed*FIXED_DT;
   carZ-=Math.cos(carHeading)*speed*FIXED_DT;
 
-  // Road boundary collision
   if(Math.abs(carX)>ROAD_HALF+.5){
     const dmg=Math.abs(speed)*.012;
     health=Math.max(0,health-dmg);
     carX=Math.sign(carX)*(ROAD_HALF+.5);
-    speed*=-.25; // bounce off
+    speed*=-.25; 
     camShake=Math.min(camShake+.12,.35);
     if(health<=0) wreck();
   }
 
-  // Skid marks: hard cornering + speed
   if(Math.abs(steerAngle)>.28 && kmh>40 && Math.random()<.35){
     addSkid(carX+(Math.random()-.5)*.6, carZ+(Math.random()-.5)*.3);
   }
 
   totalDist+=Math.abs(speed)*FIXED_DT;
-  // Earn nitro charges from distance
   distSinceRecharge+=Math.abs(speed)*FIXED_DT;
   if(distSinceRecharge>NITRO_RECHARGE_DIST && nitroCharges<5){
     nitroCharges++; distSinceRecharge=0;
   }
 
-  // Update car mesh
   carGroup.position.set(carX,carY,carZ);
   carGroup.rotation.y=carHeading;
-  // Body roll
+  
   const rollTarget=steerAngle*1.8*(Math.min(kmh,120)/120);
   carGroup.rotation.z+=(rollTarget-carGroup.rotation.z)*.12;
-  // Nose dip on brake
-  const pitchTarget=brake?-.04:accel?.02:0;
+  
+  // FIX: Explicitly clarify ternary syntax logic to avoid optional chaining crash
+  const pitchTarget = brake ? -0.04 : (accel ? 0.02 : 0);
   carGroup.rotation.x+=(pitchTarget-carGroup.rotation.x)*.1;
 
-  // Wheel spin
   const spinDelta=speed*FIXED_DT*2.8;
   for(const w of wheelNodes) w.rotation.x+=spinDelta;
-  // Front wheel steer
   for(const w of frontWheelNodes) w.rotation.y=steerAngle*3.5;
 
   recycleSegments();
-  }
-  function wreck(){
+}
+
+function wreck(){
   crashed=true;
   speed=0;
   $('wreck-stats').textContent=
@@ -895,19 +869,21 @@ async function boot(){
     initExhaust();
     initPool();
     
-    // Place car at start
     carX=0; carZ=0; carHeading=0;
     setProgress(1,'READY');
     await new Promise(r=>setTimeout(r,350));
     
-    $('loading').style.display='none';
+    const loadingScreen = $('loading');
+    if (loadingScreen) loadingScreen.style.display='none';
+    
     gameRunning=true;
     clock.start();
     animate();
   } catch(e) {
     console.error(e);
-    setProgress(1,'ERROR STARTING GAME. CHECK CONSOLE.');
-    $('load-status').style.color = '#ff3333';
+    setProgress(1, 'ERROR: ' + e.message);
+    const statText = $('load-status');
+    if (statText) statText.style.color = '#ff3333';
   }
 }
 
